@@ -1,4 +1,5 @@
 <?php
+
 namespace NeedleProject\LaravelRabbitMq\Entity;
 
 use NeedleProject\LaravelRabbitMq\AMQPConnection;
@@ -104,6 +105,10 @@ class QueueEntity implements PublisherInterface, ConsumerInterface, AMQPEntityIn
      * @var int
      */
     protected $retryCount = 0;
+    /**
+     * @var bool
+     */
+    protected $globalPrefetch = true;
 
     /**
      * @param AMQPConnection $connection
@@ -149,6 +154,7 @@ class QueueEntity implements PublisherInterface, ConsumerInterface, AMQPEntityIn
     public function setPrefetchCount(int $prefetchCount): ConsumerInterface
     {
         $this->prefetchCount = $prefetchCount;
+
         return $this;
     }
 
@@ -159,6 +165,18 @@ class QueueEntity implements PublisherInterface, ConsumerInterface, AMQPEntityIn
     public function setMessageProcessor(string $messageProcessor): ConsumerInterface
     {
         $this->messageProcessor = $messageProcessor;
+
+        return $this;
+    }
+
+    /**
+     * @param bool $globalPrefetch
+     * @return ConsumerInterface
+     */
+    public function setGlobalPrefetch(bool $globalPrefetch): ConsumerInterface
+    {
+        $this->globalPrefetch = $globalPrefetch;
+
         return $this;
     }
 
@@ -185,15 +203,15 @@ class QueueEntity implements PublisherInterface, ConsumerInterface, AMQPEntityIn
     {
         try {
             $this->getChannel()
-                ->queue_declare(
-                    $this->attributes['name'],
-                    $this->attributes['passive'],
-                    $this->attributes['durable'],
-                    $this->attributes['exclusive'],
-                    $this->attributes['auto_delete'],
-                    $this->attributes['internal'],
-                    $this->attributes['nowait']
-                );
+                 ->queue_declare(
+                     $this->attributes['name'],
+                     $this->attributes['passive'],
+                     $this->attributes['durable'],
+                     $this->attributes['exclusive'],
+                     $this->attributes['auto_delete'],
+                     $this->attributes['internal'],
+                     $this->attributes['nowait']
+                 );
         } catch (AMQPProtocolChannelException $e) {
             // 406 is a soft error triggered for precondition failure (when redeclaring with different parameters)
             if (true === $this->attributes['throw_exception_on_redeclare'] || $e->amqp_reply_code !== 406) {
@@ -206,17 +224,17 @@ class QueueEntity implements PublisherInterface, ConsumerInterface, AMQPEntityIn
 
     public function bind()
     {
-        if (!isset($this->attributes['bind']) || empty($this->attributes['bind'])) {
+        if (! isset($this->attributes['bind']) || empty($this->attributes['bind'])) {
             return;
         }
         foreach ($this->attributes['bind'] as $bindItem) {
             try {
                 $this->getChannel()
-                    ->queue_bind(
-                        $this->attributes['name'],
-                        $bindItem['exchange'],
-                        $bindItem['routing_key']
-                    );
+                     ->queue_bind(
+                         $this->attributes['name'],
+                         $bindItem['exchange'],
+                         $bindItem['routing_key']
+                     );
             } catch (AMQPProtocolChannelException $e) {
                 // 404 is the code for trying to bind to an non-existing entity
                 if (true === $this->attributes['throw_exception_on_bind_fail'] || $e->amqp_reply_code !== 404) {
@@ -260,12 +278,12 @@ class QueueEntity implements PublisherInterface, ConsumerInterface, AMQPEntityIn
 
         try {
             $this->getChannel()
-                ->basic_publish(
-                    new AMQPMessage($message),
-                    '',
-                    $this->attributes['name'],
-                    true
-                );
+                 ->basic_publish(
+                     new AMQPMessage($message),
+                     '',
+                     $this->attributes['name'],
+                     true
+                 );
             $this->retryCount = 0;
         } catch (AMQPChannelClosedException $exception) {
             $this->retryCount++;
@@ -273,6 +291,7 @@ class QueueEntity implements PublisherInterface, ConsumerInterface, AMQPEntityIn
             if ($this->retryCount < self::MAX_RETRIES) {
                 $this->getConnection()->reconnect();
                 $this->publish($message, $routingKey);
+
                 return;
             }
             throw $exception;
@@ -300,15 +319,19 @@ class QueueEntity implements PublisherInterface, ConsumerInterface, AMQPEntityIn
             } catch (\Throwable $e) {
                 // stop the consumer
                 $this->stopConsuming();
-                $this->logger->notice(sprintf(
-                    "Stopped consuming: %s in %s:%d",
-                    get_class($e) . ' - ' . $e->getMessage(),
-                    (string)$e->getFile(),
-                    (int)$e->getLine()
-                ));
+                $this->logger->notice(
+                    sprintf(
+                        "Stopped consuming: %s in %s:%d",
+                        get_class($e) . ' - ' . $e->getMessage(),
+                        (string) $e->getFile(),
+                        (int) $e->getLine()
+                    )
+                );
+
                 return 1;
             }
         }
+
         return 0;
     }
 
@@ -325,6 +348,7 @@ class QueueEntity implements PublisherInterface, ConsumerInterface, AMQPEntityIn
                     'value' => sprintf("%.2f", microtime(true) - $this->startTime)
                 ]
             );
+
             return true;
         }
         if (memory_get_peak_usage(true) >= ($this->limitMemoryConsumption * 1048576)) {
@@ -332,19 +356,22 @@ class QueueEntity implements PublisherInterface, ConsumerInterface, AMQPEntityIn
                 "Stopped consumer",
                 [
                     'limit' => 'memory_limit',
-                    'value' => (int)round(memory_get_peak_usage(true) / 1048576, 2)
+                    'value' => (int) round(memory_get_peak_usage(true) / 1048576, 2)
                 ]
             );
+
             return true;
         }
 
         if ($this->getMessageProcessor()->getProcessedMessages() >= $this->limitMessageCount) {
             $this->logger->debug(
                 "Stopped consumer",
-                ['limit' => 'message_count', 'value' => (int)$this->getMessageProcessor()->getProcessedMessages()]
+                ['limit' => 'message_count', 'value' => (int) $this->getMessageProcessor()->getProcessedMessages()]
             );
+
             return true;
         }
+
         return false;
     }
 
@@ -369,8 +396,8 @@ class QueueEntity implements PublisherInterface, ConsumerInterface, AMQPEntityIn
      */
     protected function setupConsumer(int $messages, int $seconds, int $maxMemory)
     {
-        $this->limitMessageCount = $messages;
-        $this->limitSecondsUptime = $seconds;
+        $this->limitMessageCount      = $messages;
+        $this->limitSecondsUptime     = $seconds;
         $this->limitMemoryConsumption = $maxMemory;
 
         $this->startTime = microtime(true);
@@ -389,21 +416,21 @@ class QueueEntity implements PublisherInterface, ConsumerInterface, AMQPEntityIn
         }
 
         $this->getChannel()
-            ->basic_qos(null, $this->prefetchCount, true);
+             ->basic_qos(null, $this->prefetchCount, $this->globalPrefetch);
 
         $this->getChannel()
-            ->basic_consume(
-                $this->attributes['name'],
-                $this->getConsumerTag(),
-                false,
-                false,
-                false,
-                false,
-                [
-                    $this,
-                    'consume'
-                ]
-            );
+             ->basic_consume(
+                 $this->attributes['name'],
+                 $this->getConsumerTag(),
+                 false,
+                 false,
+                 false,
+                 false,
+                 [
+                     $this,
+                     'consume'
+                 ]
+             );
     }
 
     /**
@@ -435,6 +462,7 @@ class QueueEntity implements PublisherInterface, ConsumerInterface, AMQPEntityIn
 
     /**
      * Handle Kill Signals
+     *
      * @param int $signalNumber
      */
     public function catchKillSignal(int $signalNumber)
@@ -458,12 +486,13 @@ class QueueEntity implements PublisherInterface, ConsumerInterface, AMQPEntityIn
      */
     private function getMessageProcessor(): MessageProcessorInterface
     {
-        if (!($this->messageProcessor instanceof MessageProcessorInterface)) {
+        if (! ($this->messageProcessor instanceof MessageProcessorInterface)) {
             $this->messageProcessor = app($this->messageProcessor);
             if ($this->messageProcessor instanceof AbstractMessageProcessor) {
                 $this->messageProcessor->setLogger($this->logger);
             }
         }
+
         return $this->messageProcessor;
     }
 
@@ -481,8 +510,8 @@ class QueueEntity implements PublisherInterface, ConsumerInterface, AMQPEntityIn
                 sprintf(
                     "Got %s from %s in %d",
                     $e->getMessage(),
-                    (string)$e->getFile(),
-                    (int)$e->getLine()
+                    (string) $e->getFile(),
+                    (int) $e->getLine()
                 )
             );
             // let the exception slide, the processor should handle
