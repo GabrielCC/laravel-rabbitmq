@@ -53,6 +53,7 @@ class ContainerBuilder
 
         foreach ($config['consumers'] as $consumerAliasName => $consumerDetails) {
             $prefetchCount    = $consumerDetails['prefetch_count'];
+            $globalPrefetch   = $consumerDetails['global_prefetch'];
             $messageProcessor = $consumerDetails['message_processor'];
 
             if ($queues->has($consumerDetails['queue'])) {
@@ -69,6 +70,7 @@ class ContainerBuilder
             }
 
             $entity->setPrefetchCount($prefetchCount);
+            $entity->setGlobalPrefetch($globalPrefetch);
             $entity->setMessageProcessor($messageProcessor);
             $container->addConsumer($consumerAliasName, $entity);
         }
